@@ -46,6 +46,7 @@ export const friends = sqliteTable("friends", {
     url: text("url").notNull(),
     uid: integer("uid").references(() => users.id, { onDelete: 'cascade' }).notNull(),
     accepted: integer("accepted").default(0).notNull(),
+    is_public: integer("is_public").default(1).notNull(),
     health: text("health").default("").notNull(),
     sort_order: integer("sort_order").default(0).notNull(),
     createdAt: created_at,

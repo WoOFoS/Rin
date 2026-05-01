@@ -76,7 +76,6 @@ export function FriendService() {
                     if (!admin) {
                         const webhookUrl = await ServerConfig().get(Config.webhookUrl) || env.WEBHOOK_URL;
                         const content = `${env.FRONTEND_URL}/friends\n${username} 申请友链: ${name}\n${desc}\n${url}`;
-                        // notify
                         await notify(webhookUrl, content);
                     }
                     return 'OK';
@@ -131,7 +130,6 @@ export function FriendService() {
                     if (!admin) {
                         const webhookUrl = await ServerConfig().get(Config.webhookUrl) || env.WEBHOOK_URL;
                         const content = `${env.FRONTEND_URL}/friends\n${username} 更新友链: ${name}\n${desc}\n${url}`;
-                        // notify
                         await notify(webhookUrl, content);
                     }
                     return 'OK';
@@ -166,4 +164,44 @@ export function FriendService() {
                     return 'OK';
                 })
         )
+}
+
+export async function friendCrontab(env: Env, ctx: ExecutionContext) {
+    const config = ServerConfig()
+    const enable = await config.getOrDefault('friend_crontab', true)
+    const ua = await config.get('friend_ua') || 'Rin-Check/0.1.0'
+    if (!enable) {
+        console.info('friend crontab disabled')
+        return
+    }
+    const db = drizzle(env.DB, { schema: schema })
+    const friend_list = await db.query.friends.findMany()
+    console.info(`total friends: ${friend_list.length}`)
+    let health = 0
+    let unhealthy = 0
+    for (const friend of friend_list) {
+        console.info(`checking ${friend.name}: ${friend.url}`)
+        try {
+            const response = await fetch(new Request(friend.url, {
+                method: 'GET',
+                headers: {
+                    'User-Agent': ua
+                }
+            }))
+            console.info(`response status: ${response.status}`)
+            console.info(`response statusText: ${response.statusText}`)
+            if (response.ok) {
+                ctx.waitUntil(db.update(schema.friends).set({ health: "" }).where(eq(schema.friends.id, friend.id)))
+                health++
+            } else {
+                ctx.waitUntil(db.update(schema.friends).set({ health: `${response.status}` }).where(eq(schema.friends.id, friend.id)))
+                unhealthy++
+            }
+        } catch (e: any) {
+            console.error(e.message)
+            ctx.waitUntil(db.update(schema.friends).set({ health: e.message }).where(eq(schema.friends.id, friend.id)))
+            unhealthy++
+        }
+    }
+    console.info(`update friends health done. Total: ${health + unhealthy}, Healthy: ${health}, Unhealthy: ${unhealthy}`)
 }
